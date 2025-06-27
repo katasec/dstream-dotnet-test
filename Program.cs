@@ -14,10 +14,66 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 namespace DStreamDotnetTest
 {
+    // HashiCorp compatible logger implementation that exactly matches the format expected by go-plugin
+    public class HCLogger
+    {
+        private readonly string _name;
+        private readonly TextWriter _writer;
+        
+        public HCLogger(string name, TextWriter writer = null)
+        {
+            _name = name;
+            _writer = writer ?? Console.Error; // HashiCorp go-plugin uses stderr for logging
+        }
+        
+        public void Log(string level, string message, params object[] args)
+        {
+            try
+            {
+                // Format the message with args if any
+                string formattedMessage = args.Length > 0 ? string.Format(message, args) : message;
+                
+                // Create the log entry in HashiCorp hclog format
+                // The format must exactly match what HashiCorp's go-plugin expects
+                var logEntry = new Dictionary<string, object>
+                {
+                    ["@level"] = level,
+                    ["@message"] = formattedMessage,
+                    ["@module"] = _name
+                };
+                
+                // Serialize to JSON and write to stderr
+                string json = JsonSerializer.Serialize(logEntry);
+                _writer.WriteLine(json);
+                _writer.Flush();
+            }
+            catch (Exception ex)
+            {
+                // If logging fails, write a simple error message to stderr
+                // This shouldn't happen in normal operation
+                try
+                {
+                    _writer.WriteLine($"{{\"@level\":\"error\",\"@message\":\"Logging error: {ex.Message}\",\"@module\":\"{_name}\"}}");
+                    _writer.Flush();
+                }
+                catch
+                {
+                    // Last resort - if we can't even log the error, just ignore it
+                }
+            }
+        }
+        
+        public void Debug(string message, params object[] args) => Log("debug", message, args);
+        public void Info(string message, params object[] args) => Log("info", message, args);
+        public void Warn(string message, params object[] args) => Log("warn", message, args);
+        public void Error(string message, params object[] args) => Log("error", message, args);
+    }
+    
     // Implement the Plugin service
     public class PluginService : DStream.Plugin.Plugin.PluginBase
     {
@@ -36,124 +92,167 @@ namespace DStreamDotnetTest
             return Task.FromResult(response);
         }
 
-        public override Task<Empty> Start(Struct request, ServerCallContext context)
-        {            
-            // Start a background task to output numbers
-            Task.Run(async () => {
-                while (true)
+        // Implement the Start method from the PluginBase class
+        public override async Task<Empty> Start(Struct request, ServerCallContext context)
+        {
+            // Create a HashiCorp compatible logger
+            var logger = new HCLogger("dotnet-counter");
+            
+            try
+            {
+                // Log startup message
+                logger.Info(".NET Counter plugin started");
+                
+                // Run the counter loop in the current task, keeping the plugin alive
+                // This is important - the plugin should block until cancellation
+                int counter = 0;
+                while (!context.CancellationToken.IsCancellationRequested)
                 {
                     counter++;
+                    
+                    // Log counter value using HCLogger which writes to stderr
+                    // The HashiCorp go-plugin system will capture this and forward it to the host
+                    logger.Info($"Counter: {counter}");
+                    
                     // Only print to console if in standalone mode
                     if (Program.IsStandalone)
                     {
                         Console.WriteLine($"Counter: {counter}");
                     }
-                    await Task.Delay(5000); // Wait for 5 seconds
+                    
+                    // Wait for 5 seconds or until cancellation
+                    try
+                    {
+                        await Task.Delay(5000, context.CancellationToken);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        logger.Info("Plugin received cancellation signal");
+                        break;
+                    }
                 }
-            });
+                
+                logger.Info("Plugin stopped by cancellation");
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when cancellation occurs
+                logger.Info("Plugin stopped by cancellation");
+            }
+            catch (Exception ex)
+            {
+                // Log any unexpected exceptions
+                logger.Error("Error: {0}", ex.Message);
+            }
             
-            // Return an empty response
-            return Task.FromResult(new Empty());
+            // Return an empty response when done
+            return new Empty();
         }
     }
     
     public class Program
     {
         public static bool IsStandalone { get; private set; } = false;
-        private static int counter = 0;
-        private static TaskCompletionSource<bool> _serverStarted = new TaskCompletionSource<bool>();
         
-        public static void Main(string[] args)
+        static async Task Main(string[] args)
         {
-            // Create a reset event for graceful shutdown
-            var exitEvent = new ManualResetEvent(false);
-            
-            // Register for SIGINT (Ctrl+C) and SIGTERM
-            Console.CancelKeyPress += (sender, eventArgs) => {
-                // Cancel the default behavior (termination)
-                eventArgs.Cancel = true;
-                // Signal the exit event
-                exitEvent.Set();
-            };
-            
-            // Check if we're running in standalone mode (explicit flag needed)
+            // Check if running in standalone mode
             IsStandalone = args.Length > 0 && args[0] == "--standalone";
             
-            // Find an available port
-            int port = FindAvailablePort();
+            // Create a HashiCorp compatible logger
+            var logger = new HCLogger("dotnet-plugin");
             
-            if (!IsStandalone)
+            try
             {
-                // Default mode is plugin mode
-                // Create a host builder with logging disabled
-                var hostBuilder = Host.CreateDefaultBuilder(args)
-                    .ConfigureLogging(logging => {
-                        logging.ClearProviders(); // Remove all logging providers
-                    })
-                    .ConfigureWebHostDefaults(webBuilder =>
+                // In plugin mode, only redirect stdout, leaving stderr available for logging
+                if (!IsStandalone)
+                {
+                    // Only redirect stdout, not stderr (which is used for logging)
+                    Console.SetOut(TextWriter.Null);
+                }
+                
+                // Find an available port
+                int port = FindAvailablePort();
+                
+                // Create and start the gRPC server
+                var builder = WebApplication.CreateBuilder(args);
+                
+                // Add services to the container
+                builder.Services.AddGrpc();
+                
+                // Configure Kestrel to use the specific port
+                builder.WebHost.ConfigureKestrel(options =>
+                {
+                    options.ListenLocalhost(port, listenOptions =>
                     {
-                        webBuilder.ConfigureKestrel(options =>
-                        {
-                            options.ListenLocalhost(port, listenOptions =>
-                            {
-                                listenOptions.Protocols = HttpProtocols.Http2;
-                            });
-                        });
-                        webBuilder.UseStartup<Startup>();
+                        listenOptions.Protocols = HttpProtocols.Http2;
                     });
-                
-                // Build the host
-                var host = hostBuilder.Build();
-                
-                // Start the host in a separate task
-                Task.Run(async () => {
-                    // Start the host
-                    await host.StartAsync();
-                    
-                    // Signal that the server has started
-                    _serverStarted.SetResult(true);
-                    
-                    // Wait for the host to stop
-                    await host.WaitForShutdownAsync();
                 });
                 
-                // Wait for the server to start
-                _serverStarted.Task.Wait();
+                // Suppress ASP.NET Core logging in plugin mode
+                if (!IsStandalone)
+                {
+                    builder.Logging.ClearProviders();
+                }
                 
-                // Output the handshake string as the first line AFTER the server has started
-                // Format: 1|1|tcp|localhost:PORT|grpc
-                Console.WriteLine($"1|1|tcp|localhost:{port}|grpc");
+                var app = builder.Build();
                 
-                // Redirect Console.Out to TextWriter.Null to suppress all further console output
-                Console.SetOut(TextWriter.Null);
+                // Configure the HTTP request pipeline
+                app.MapGrpcService<PluginService>();
+                
+                // Start the server
+                await app.StartAsync();
+                
+                // Log server startup
+                logger.Info("gRPC server started on port {0}", port);
+                
+                // Output the handshake string after the server has started
+                if (!IsStandalone)
+                {
+                    // Output the handshake string to stdout
+                    // We need to temporarily restore stdout for this
+                    var originalOut = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
+                    Console.SetOut(originalOut);
+                    Console.WriteLine($"1|1|tcp|127.0.0.1:{port}|grpc");
+                    Console.SetOut(TextWriter.Null); // Suppress further stdout output
+                    
+                    logger.Info("Handshake string sent to host");
+                }
+                else
+                {
+                    Console.WriteLine($"Server started on port {port} in standalone mode");
+                    Console.WriteLine("Press Ctrl+C to stop the server");
+                }
+                
+                // Create a reset event for graceful shutdown
+                var exitEvent = new ManualResetEvent(false);
+                
+                // Register for SIGINT (Ctrl+C) and SIGTERM
+                Console.CancelKeyPress += (sender, eventArgs) => {
+                    logger.Info("Received shutdown signal");
+                    // Cancel the default behavior (termination)
+                    eventArgs.Cancel = true;
+                    // Signal the exit event
+                    exitEvent.Set();
+                };
                 
                 // Wait for exit signal
                 exitEvent.WaitOne();
                 
-                // Gracefully stop the host when exit is signaled
-                host.StopAsync().Wait();
-                host.Dispose();
+                // Gracefully stop the server
+                logger.Info("Shutting down server");
+                await app.StopAsync();
             }
-            else
+            catch (Exception ex)
             {
-                // Running in standalone mode (explicitly requested)
-                Console.WriteLine("Running in standalone mode...");
-                var host = CreateHostBuilder(args, port).Build();
-                
-                // Start a background task to output numbers
-                Task.Run(async () => {
-                    while (true)
-                    {
-                        Console.WriteLine($"Counter: {counter}");
-                        await Task.Delay(5000); // Wait for 5 seconds
-                    }
-                });
-                
-                // Run the host
-                host.Run();
+                logger.Error("Fatal error: {0}", ex.Message);
+                if (IsStandalone)
+                {
+                    Console.WriteLine($"Error: {ex.Message}");
+                }
             }
         }
-
+        
         // Find an available port by creating a temporary socket
         private static int FindAvailablePort()
         {
@@ -162,39 +261,6 @@ namespace DStreamDotnetTest
                 socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
                 return ((IPEndPoint)socket.LocalEndPoint).Port;
             }
-        }
-        
-        public static IHostBuilder CreateHostBuilder(string[] args, int port) =>
-            Host.CreateDefaultBuilder(args)
-                .ConfigureWebHostDefaults(webBuilder =>
-                {
-                    webBuilder.ConfigureKestrel(options =>
-                    {
-                        options.ListenLocalhost(port, listenOptions =>
-                        {
-                            listenOptions.Protocols = HttpProtocols.Http2;
-                        });
-                    });
-                    webBuilder.UseStartup<Startup>();
-                });
-    }
-    
-    // Configure the ASP.NET Core application
-    public class Startup
-    {
-        public void ConfigureServices(IServiceCollection services)
-        {
-            services.AddGrpc();
-        }
-
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
-        {
-            app.UseRouting();
-
-            app.UseEndpoints(endpoints =>
-            {
-                endpoints.MapGrpcService<PluginService>();
-            });
         }
     }
 }
