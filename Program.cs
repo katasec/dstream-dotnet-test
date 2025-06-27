@@ -1,34 +1,30 @@
+// This is a .NET gRPC plugin for dstream that implements the HashiCorp go-plugin handshake protocol
+// It outputs an infinite counter every 5 seconds and ensures proper handshake with dstream
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Google.Protobuf.WellKnownTypes;
 using DStream.Plugin;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-using System.Linq;
-using Microsoft.AspNetCore.Hosting.Server.Features;
-using System.IO;
 
 namespace DStreamDotnetTest
 {
     // Implement the Plugin service
     public class PluginService : DStream.Plugin.Plugin.PluginBase
     {
-        private readonly ILogger<PluginService> _logger;
-
-        public PluginService(ILogger<PluginService> logger)
-        {
-            _logger = logger;
-        }
-
+        private static int counter = 0;
+        
         public override Task<GetSchemaResponse> GetSchema(Empty request, ServerCallContext context)
         {
-            _logger.LogInformation("GetSchema called");
-            
             // Create a simple schema
             var response = new GetSchemaResponse();
             response.Fields.Add(new FieldSchema { 
@@ -41,16 +37,17 @@ namespace DStreamDotnetTest
         }
 
         public override Task<Empty> Start(Struct request, ServerCallContext context)
-        {
-            _logger.LogInformation("Start called with parameters: {Parameters}", request);
-            
+        {            
             // Start a background task to output numbers
             Task.Run(async () => {
-                int counter = 0;
                 while (true)
                 {
                     counter++;
-                    Console.WriteLine($"Counter: {counter}");
+                    // Only print to console if in standalone mode
+                    if (Program.IsStandalone)
+                    {
+                        Console.WriteLine($"Counter: {counter}");
+                    }
                     await Task.Delay(5000); // Wait for 5 seconds
                 }
             });
@@ -62,30 +59,32 @@ namespace DStreamDotnetTest
     
     public class Program
     {
-        static int counter = 0;
+        public static bool IsStandalone { get; private set; } = false;
+        private static int counter = 0;
+        private static TaskCompletionSource<bool> _serverStarted = new TaskCompletionSource<bool>();
         
         public static void Main(string[] args)
         {
-            // Check if we're being run by the go-plugin system
-            bool isPlugin = Environment.GetEnvironmentVariable("PLUGIN_PROTOCOL_VERSIONS") != null;
+            // Create a reset event for graceful shutdown
+            var exitEvent = new ManualResetEvent(false);
             
-            if (isPlugin)
+            // Register for SIGINT (Ctrl+C) and SIGTERM
+            Console.CancelKeyPress += (sender, eventArgs) => {
+                // Cancel the default behavior (termination)
+                eventArgs.Cancel = true;
+                // Signal the exit event
+                exitEvent.Set();
+            };
+            
+            // Check if we're running in standalone mode (explicit flag needed)
+            IsStandalone = args.Length > 0 && args[0] == "--standalone";
+            
+            // Find an available port
+            int port = FindAvailablePort();
+            
+            if (!IsStandalone)
             {
-                // When running as a plugin, we need to:                
-                // 1. Start a gRPC server on a fixed port
-                // 2. Output the handshake string as the very first output
-                // 3. Suppress all other console output
-                
-                // Use a fixed port for the gRPC server
-                int port = 50051;
-                
-                // Immediately output the handshake string as the first line
-                // Format: 1|1|tcp|localhost:PORT|grpc
-                Console.WriteLine($"1|1|tcp|localhost:{port}|grpc");
-                
-                // Redirect Console.Out to TextWriter.Null to suppress all further console output
-                Console.SetOut(TextWriter.Null);
-                
+                // Default mode is plugin mode
                 // Create a host builder with logging disabled
                 var hostBuilder = Host.CreateDefaultBuilder(args)
                     .ConfigureLogging(logging => {
@@ -103,31 +102,48 @@ namespace DStreamDotnetTest
                         webBuilder.UseStartup<Startup>();
                     });
                 
-                // Build and run the host
+                // Build the host
                 var host = hostBuilder.Build();
                 
-                // Start a background task to increment the counter (no output)
+                // Start the host in a separate task
                 Task.Run(async () => {
-                    while (true)
-                    {
-                        counter++;
-                        await Task.Delay(5000); // Wait for 5 seconds
-                    }
+                    // Start the host
+                    await host.StartAsync();
+                    
+                    // Signal that the server has started
+                    _serverStarted.SetResult(true);
+                    
+                    // Wait for the host to stop
+                    await host.WaitForShutdownAsync();
                 });
                 
-                // Run the host
-                host.Run();
+                // Wait for the server to start
+                _serverStarted.Task.Wait();
+                
+                // Output the handshake string as the first line AFTER the server has started
+                // Format: 1|1|tcp|localhost:PORT|grpc
+                Console.WriteLine($"1|1|tcp|localhost:{port}|grpc");
+                
+                // Redirect Console.Out to TextWriter.Null to suppress all further console output
+                Console.SetOut(TextWriter.Null);
+                
+                // Wait for exit signal
+                exitEvent.WaitOne();
+                
+                // Gracefully stop the host when exit is signaled
+                host.StopAsync().Wait();
+                host.Dispose();
             }
             else
             {
-                // Running in standalone mode
-                var host = CreateHostBuilder(args).Build();
+                // Running in standalone mode (explicitly requested)
+                Console.WriteLine("Running in standalone mode...");
+                var host = CreateHostBuilder(args, port).Build();
                 
                 // Start a background task to output numbers
                 Task.Run(async () => {
                     while (true)
                     {
-                        counter++;
                         Console.WriteLine($"Counter: {counter}");
                         await Task.Delay(5000); // Wait for 5 seconds
                     }
@@ -138,34 +154,32 @@ namespace DStreamDotnetTest
             }
         }
 
-        public static IHostBuilder CreateHostBuilder(string[] args) =>
+        // Find an available port by creating a temporary socket
+        private static int FindAvailablePort()
+        {
+            using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            {
+                socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+                return ((IPEndPoint)socket.LocalEndPoint).Port;
+            }
+        }
+        
+        public static IHostBuilder CreateHostBuilder(string[] args, int port) =>
             Host.CreateDefaultBuilder(args)
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.ConfigureKestrel(options =>
                     {
-                        // Use a random port when running as a plugin, otherwise use port 50051
-                        if (Environment.GetEnvironmentVariable("PLUGIN_PROTOCOL_VERSIONS") != null)
+                        options.ListenLocalhost(port, listenOptions =>
                         {
-                            // When running as a plugin, use a dynamic port
-                            options.ListenLocalhost(0, listenOptions =>
-                            {
-                                listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
-                            });
-                        }
-                        else
-                        {
-                            // When running standalone, use port 50051
-                            options.ListenLocalhost(50051, listenOptions =>
-                            {
-                                listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
-                            });
-                        }
+                            listenOptions.Protocols = HttpProtocols.Http2;
+                        });
                     });
                     webBuilder.UseStartup<Startup>();
                 });
     }
-
+    
+    // Configure the ASP.NET Core application
     public class Startup
     {
         public void ConfigureServices(IServiceCollection services)
@@ -175,32 +189,12 @@ namespace DStreamDotnetTest
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
-            if (env.IsDevelopment())
-            {
-                app.UseDeveloperExceptionPage();
-            }
-
             app.UseRouting();
 
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapGrpcService<PluginService>();
             });
-        }
-    }
-    
-    // Simple console logger for standalone mode
-    public class ConsoleLogger<T> : ILogger<T>
-    {
-        public IDisposable BeginScope<TState>(TState state) => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
-        {
-            // Don't log to console when running as a plugin to avoid interfering with the protocol
-            if (Environment.GetEnvironmentVariable("PLUGIN_PROTOCOL_VERSIONS") == null)
-            {
-                Console.WriteLine($"[{logLevel}] {formatter(state, exception)}");
-            }
         }
     }
 }
