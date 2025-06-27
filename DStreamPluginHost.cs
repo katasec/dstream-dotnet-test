@@ -48,6 +48,18 @@ namespace DStreamDotnetTest
             // Check if running in standalone mode
             IsStandalone = HashiCorpPluginUtils.IsStandaloneMode(args);
             
+            // Check if this is a direct execution without a host (like terraform or dstream)
+            // HashiCorp sets PLUGIN_PROTOCOL_VERSIONS environment variable when launching plugins
+            if (!IsStandalone && Environment.GetEnvironmentVariable("PLUGIN_PROTOCOL_VERSIONS") == null && 
+                Environment.GetEnvironmentVariable("PLUGIN_MIN_PORT") == null)
+            {
+                // This matches the HashiCorp plugin warning message format
+                Console.WriteLine("This binary is a plugin. These are not meant to be executed directly.");
+                Console.WriteLine("Please execute the program that consumes these plugins, which will");
+                Console.WriteLine("load any plugins automatically");
+                return;
+            }
+            
             // Create the plugin instance
             Plugin = new TPlugin();
             

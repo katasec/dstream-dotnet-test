@@ -56,15 +56,19 @@ namespace DStreamDotnetTest
         }
         
         /// <summary>
-        /// Determines if the application is running in standalone mode
+        /// Determines if the plugin is running in standalone mode
         /// </summary>
         /// <param name="args">Command line arguments</param>
         /// <returns>True if running in standalone mode, false otherwise</returns>
         public static bool IsStandaloneMode(string[] args)
         {
-            // Check if --standalone flag is present
-            return args != null && Array.Exists(args, arg => 
-                arg.Equals("--standalone", StringComparison.OrdinalIgnoreCase));
+            // Check if --standalone is in the arguments
+            if (args != null && Array.Exists(args, arg => arg.Equals("--standalone", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+            
+            return false;
         }
         
         /// <summary>
