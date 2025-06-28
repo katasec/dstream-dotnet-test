@@ -1,17 +1,12 @@
 // DStreamPluginHost.cs
 // Base class for hosting dstream plugins
 
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Grpc.Core;
 using Google.Protobuf.WellKnownTypes;
 using DStream.Plugin;
-using System.IO;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 

@@ -13,7 +13,8 @@ param(
     [string]$Task = 'help'
 )
 
-function Get-Rid {
+function Get-Rid 
+{
     $os  = if ($IsWindows) { 'win' }
            elseif ($IsLinux) { 'linux' }
            elseif ($IsMacOS) { 'osx' }
@@ -28,7 +29,8 @@ function Get-Rid {
     return "$os-$arch"
 }
 
-function Show-Help {
+function Show-Help 
+{
     $tasks = @{
         help    = 'Show this list'
         publish = 'Publish the project'
@@ -46,7 +48,8 @@ function Show-Help {
 
 
 
-switch ($Task) {
+switch ($Task) 
+{
     'publish' {
         Write-Host '→ Publishing…'
         $rid = Get-Rid          # e.g. win-x64, linux-arm64, osx-x64
