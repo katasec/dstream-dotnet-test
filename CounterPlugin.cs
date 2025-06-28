@@ -2,6 +2,7 @@
 // Sample plugin implementation that outputs a counter
 
 using DStream.Plugin;
+using Katasec.DStream.Plugin;
 
 namespace DStreamDotnetTest;
 

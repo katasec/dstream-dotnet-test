@@ -1,4 +1,5 @@
 using DStreamDotnetTest;
+using Katasec.DStream.Plugin;
 
 var host = new DStreamPluginHost<CounterPlugin>();
 
