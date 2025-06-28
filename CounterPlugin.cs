@@ -44,18 +44,10 @@ public class CounterPlugin : IDStreamPlugin
         int counter = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
-            counter++;
-            
             // Log counter value using HCLogger which writes to stderr
             // The HashiCorp go-plugin system will capture this and forward it to the host
-            logger.Info($"Counter: {counter}");
-            
-            // Only print to console if in standalone mode
-            if (DStreamPluginHost<CounterPlugin>.IsStandalone)
-            {
-                Console.WriteLine($"Counter: {counter}");
-            }
-            
+            logger.Info($"Counter: {++counter}");
+
             // Wait for 5 seconds or until cancellation
             try
             {
