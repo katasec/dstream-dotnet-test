@@ -22,7 +22,7 @@ namespace DStreamDotnetTest
         /// </summary>
         /// <param name="name">The name/module of the logger</param>
         /// <param name="writer">Optional TextWriter to write logs to (defaults to Console.Error)</param>
-        public HCLogger(string name, TextWriter writer = null)
+        public HCLogger(string name, TextWriter? writer = null)
         {
             _name = name;
             _writer = writer ?? Console.Error; // HashiCorp go-plugin uses stderr for logging

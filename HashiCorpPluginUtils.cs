@@ -20,12 +20,16 @@ namespace DStreamDotnetTest
         {
             // Create a new socket
             using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            
+
             // Bind to port 0, which tells the OS to assign an available port
             socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-            
+
             // Get the assigned port
-            var endpoint = (IPEndPoint)socket.LocalEndPoint;
+            var endpoint = socket.LocalEndPoint as IPEndPoint;
+            if (endpoint == null)
+            {
+                throw new InvalidOperationException("Failed to retrieve the local endpoint.");
+            }
             return endpoint.Port;
         }
         
@@ -34,7 +38,7 @@ namespace DStreamDotnetTest
         /// </summary>
         /// <param name="port">The port number the gRPC server is listening on</param>
         /// <param name="logger">Optional logger to log the handshake</param>
-        public static void SendHandshakeString(int port, HCLogger logger = null)
+        public static void SendHandshakeString(int port, HCLogger? logger = null)
         {
             // Format: CORE-PROTOCOL-VERSION|APP-PROTOCOL-VERSION|NETWORK-TYPE|NETWORK-ADDR|PROTOCOL
             // Example: 1|1|tcp|127.0.0.1:1234|grpc
