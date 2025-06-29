@@ -1,7 +1,11 @@
 using DStreamDotnetTest;
+using DStreamDotnetTest.Providers;
 using Katasec.DStream.Plugin;
 
-var host = new DStreamPluginHost<CounterPlugin>();
+// Register providers
+ProviderRegistry.RegisterInputProvider<NullInputProvider>("null");
+ProviderRegistry.RegisterOutputProvider<ConsoleOutputProvider>("console");
 
-// Run the plugin host
+// Create and run the plugin host
+var host = new DStreamPluginHost<CounterPlugin>();
 await host.RunAsync(args);

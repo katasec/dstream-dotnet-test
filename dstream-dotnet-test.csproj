@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -25,7 +25,7 @@
 
   <ItemGroup>
     <!--<PackageReference Include="HCLog.Net" Version="0.0.4" />-->
-    <PackageReference Include="Katasec.DStream.Plugin" Version="0.0.3" />
+    <PackageReference Include="Katasec.DStream.Plugin" Version="0.0.4" />
   </ItemGroup>
 
   <ItemGroup>
