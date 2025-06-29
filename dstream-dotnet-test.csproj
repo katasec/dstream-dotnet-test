@@ -7,7 +7,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier> <!-- or osx-arm64 for Apple Silicon -->
     <PublishSingleFile>true</PublishSingleFile> <!-- Optional: bundle into a single file --> 
   </PropertyGroup>
 
