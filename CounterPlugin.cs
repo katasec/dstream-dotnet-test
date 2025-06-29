@@ -1,7 +1,7 @@
 // CounterPlugin.cs
 // Sample plugin implementation that outputs a counter
 
-using DStream.Plugin;
+using Katasec.DStream.Proto;
 using Katasec.DStream.Plugin;
 
 namespace DStreamDotnetTest;
