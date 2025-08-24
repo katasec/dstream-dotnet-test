@@ -6,6 +6,6 @@ using Katasec.DStream.Plugin;
 ProviderRegistry.RegisterInputProvider<NullInputProvider>("null");
 ProviderRegistry.RegisterOutputProvider<ConsoleOutputProvider>("console");
 
-// Create and run the plugin host
-var host = new DStreamPluginHost<CounterPlugin>();
+// Create and run the plugin host with strongly-typed configuration
+var host = new DStreamPluginHost<GenericCounterPlugin, GenericCounterConfig>();
 await host.RunAsync(args);
