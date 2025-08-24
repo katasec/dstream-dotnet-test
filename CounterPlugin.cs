@@ -2,6 +2,7 @@
 // Sample plugin implementation that outputs a counter
 
 using System.Text.Json;
+using HCLog.Net;
 using Katasec.DStream.Plugin;
 using Katasec.DStream.Plugin.Interfaces;
 using Katasec.DStream.Plugin.Models;
