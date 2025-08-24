@@ -51,65 +51,28 @@ public class GenericCounterPlugin : IDStreamPlugin<GenericCounterConfig>
     /// </summary>
     public async Task ProcessAsync(IInput input, IOutput output, GenericCounterConfig config, CancellationToken cancellationToken)
     {
-        // Create a HashiCorp compatible logger
+        // Create a logger and log the configuration
         var logger = new HCLogger(ModuleName);
+        logger.Info($"Hello World plugin started with interval: {config.Interval}ms");
         
-        // Log startup message
-        logger.Info("Generic Counter plugin started with strongly-typed configuration");
-        logger.Info($"Using input provider: {input.GetType().Name}");
-        logger.Info($"Using output provider: {output.GetType().Name}");
-        
-        // Log the strongly-typed configuration
-        logger.Info("Strongly-typed configuration:");
-        logger.Info($"  Interval: {config.Interval}ms");
-        
-        // Run the counter loop, keeping the plugin alive until cancellation
+        // Simple counter loop
         int counter = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
-            // Create the counter data
-            var counterData = new Dictionary<string, object>
-            {
-                ["counter"] = ++counter,
-                ["prefix"] = "Count" // Using a default prefix since we removed it from config
-            };
-            
-            // Always include timestamp
-            counterData["timestamp"] = DateTime.UtcNow.ToString("o");
-            
-            // Format the output message
+            // Increment counter and create a simple message
+            counter++;
             string message = $"Count: {counter}";
+            logger.Info(message);
             
-            // Convert our counter object to JsonElement
-            var counterJson = JsonSerializer.Serialize(counterData);
-            var jsonElement = JsonDocument.Parse(counterJson).RootElement;
+            // Create a simple stream item with the counter value
+            var data = JsonDocument.Parse($"{{\"counter\": {counter}}}").RootElement;
+            var item = StreamItem.Create(data, "hello-world", "increment");
             
-            // Create the StreamItem
-            var item = StreamItem.Create(
-                data: jsonElement,
-                source: "generic-counter-plugin",
-                operation: "increment"
-            );
-            
-            // Add metadata
-            item.Metadata["plugin_type"] = "generic";
-            
-            // Write the counter to the output
+            // Write to output and wait for the next interval
             await output.WriteAsync(new[] { item }, cancellationToken);
-            logger.Info($"{message} written to output");
-
-            // Wait for the configured interval or until cancellation
-            try
-            {
-                await Task.Delay(config.Interval, cancellationToken);
-            }
-            catch (TaskCanceledException)
-            {
-                logger.Info("Plugin received cancellation signal");
-                break;
-            }
+            
+            try { await Task.Delay(config.Interval, cancellationToken); }
+            catch (TaskCanceledException) { break; }
         }
-        
-        logger.Info("Plugin stopped by cancellation");
     }
 }
