@@ -23,9 +23,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!--<PackageReference Include="HCLog.Net" Version="0.0.4" />-->
-    <ProjectReference Include="../Katasec.DStream.Plugins/src/Katasec.DStream.Plugin/Katasec.DStream.Plugin.csproj" />
-    <ProjectReference Include="../Katasec.DStream.Providers/src/Katasec.DStream.Providers/Katasec.DStream.Providers.csproj" />
+    <PackageReference Include="HCLog.Net" Version="0.0.5" />
+    <PackageReference Include="Katasec.DStream.Plugin" Version="0.0.8" />
+    <PackageReference Include="Katasec.DStream.Providers" Version="0.0.1" />
   </ItemGroup>
 
   <ItemGroup>

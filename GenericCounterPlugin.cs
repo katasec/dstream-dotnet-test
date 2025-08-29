@@ -7,21 +7,9 @@ using Katasec.DStream.Plugin.Interfaces;
 using Katasec.DStream.Plugin.Models;
 using Katasec.DStream.Proto;
 using HCLog.Net;
-namespace DStreamDotnetTest;
+using DStreamDotnetTest.Extensions;
 
-/// <summary>
-/// Strongly typed configuration for the GenericCounterPlugin
-/// </summary>
-public class GenericCounterConfig
-{
-    /// <summary>
-    /// Interval between counter increments in milliseconds
-    /// </summary>
-    public int Interval { get; set; } = 5000;
-    
-    // We're keeping only the interval property to match the existing dotnet-counter task
-    // Other properties can be added later as the configuration evolves
-}
+namespace DStreamDotnetTest;
 
 /// <summary>
 /// A simple counter plugin that uses the generic interface with strongly-typed configuration
@@ -61,18 +49,18 @@ public class GenericCounterPlugin : IDStreamPlugin<GenericCounterConfig>
         {
             // Increment counter and create a simple message
             counter++;
-            string message = $"Count: {counter}";
+            string message = $"Hello from .NET plugin! Count: {counter}";
             logger.Info(message);
             
-            // Create a simple stream item with the counter value
-            var data = JsonDocument.Parse($"{{\"counter\": {counter}}}").RootElement;
-            var item = StreamItem.Create(data, "hello-world", "increment");
+            // Write counter with proper source/operation
+            await output.WriteJsonAsync(new { counter },cancellationToken);
             
-            // Write to output and wait for the next interval
-            await output.WriteAsync(new[] { item }, cancellationToken);
-            
-            try { await Task.Delay(config.Interval, cancellationToken); }
-            catch (TaskCanceledException) { break; }
+            try { 
+                await Task.Delay(config.Interval, cancellationToken); 
+            }
+            catch (TaskCanceledException) { 
+                break; 
+            }
         }
     }
 }
