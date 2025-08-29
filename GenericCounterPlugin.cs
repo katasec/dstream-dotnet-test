@@ -1,13 +1,10 @@
 // GenericCounterPlugin.cs
 // Sample plugin implementation that uses the generic interface with strongly-typed configuration
 
-using System.Text.Json;
-using Katasec.DStream.Plugin;
 using Katasec.DStream.Plugin.Interfaces;
-using Katasec.DStream.Plugin.Models;
 using Katasec.DStream.Proto;
 using HCLog.Net;
-using DStreamDotnetTest.Extensions;
+using Katasec.DStream.Plugin.Extensions;
 
 namespace DStreamDotnetTest;
 
